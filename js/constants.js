@@ -65,6 +65,12 @@ window.FIXED_COLOR_STAIRS = '#00FF00'; // Green stairs/exits
 window.FIXED_COLOR_ENEMY = '#FF4444'; // Red enemies
 window.VINTAGE_GREEN = '#00FF00';
 
+// Combat balance constants
+window.COMBAT_BASE_DAMAGE_MULTIPLIER = 1.5; // Multiplier for square root scaling
+window.COMBAT_DAMAGE_VARIATION = 0.2; // ±20% random variation
+window.COMBAT_MAX_DAMAGE_CAP = 15; // Maximum damage anyone can deal per hit
+window.COMBAT_MIN_DAMAGE = 1; // Minimum damage (always at least 1)
+
 // Activity log state
 window.MAX_ACTIVITY_LOG_ENTRIES = 10;
 

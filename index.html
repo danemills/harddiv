@@ -24,6 +24,10 @@
     <script src="js/nameGenerator.js"></script>
 
     <script>
+    // --- Prevent enemies from acting before player moves on a new level ---
+    var playerHasMovedThisLevel = false;
+    // --- GLOBAL TURN LOCK ---
+    var inputLocked = false;
         // Test that external files loaded correctly
         console.log("=== CHECKING EXTERNAL MODULES ===");
         console.log("- Constants loaded:", typeof CANVAS_WIDTH_INITIAL !== 'undefined');
@@ -3362,44 +3366,53 @@
                             }
                         }
                         
+                        // Draw door as a solid square with a triangle-shaped empty space (hole) in the center
+                        ctx.save();
+                        // Draw the full door square
                         ctx.fillRect(Math.floor(doorX), Math.floor(doorY), Math.floor(currentRenderTileSize), Math.floor(currentRenderTileSize));
-                        
-                        // Draw triangle-shaped lock in the center (half the size of the triangle key)
-                        const lockSize = Math.floor(currentRenderTileSize * 0.2); // Half of triangle size (0.4 * 0.5)
-                        const lockCenterX = Math.floor(doorX + currentRenderTileSize / 2);
-                        const lockCenterY = Math.floor(doorY + currentRenderTileSize / 2);
-                        
-                        ctx.fillStyle = '#654321'; // Darker brown for lock
+                        // Cut out a triangle hole in the center
+                        ctx.globalCompositeOperation = 'destination-out';
+                        const holeSize = currentRenderTileSize / 2;
+                        const holeCenterX = Math.floor(doorX + currentRenderTileSize / 2);
+                        const holeCenterY = Math.floor(doorY + currentRenderTileSize / 2);
+                        // Cut triangle hole
                         ctx.beginPath();
-                        ctx.moveTo(lockCenterX, lockCenterY - lockSize); // Top point
-                        ctx.lineTo(lockCenterX - lockSize, lockCenterY + lockSize); // Bottom left
-                        ctx.lineTo(lockCenterX + lockSize, lockCenterY + lockSize); // Bottom right
+                        ctx.moveTo(holeCenterX, holeCenterY - holeSize); // Top
+                        ctx.lineTo(holeCenterX - holeSize, holeCenterY + holeSize); // Bottom left
+                        ctx.lineTo(holeCenterX + holeSize, holeCenterY + holeSize); // Bottom right
                         ctx.closePath();
                         ctx.fill();
-                        
-                        // Draw lighter outline for the lock to make it more visible
-                        ctx.strokeStyle = '#A0522D'; // Lighter brown outline
-                        ctx.lineWidth = 1;
-                        ctx.stroke();
-                        
-                        // Draw small padlock inside the triangle
-                        const padlockSize = Math.max(2, Math.floor(lockSize * 0.4)); // Padlock is 40% of triangle size
-                        const padlockX = lockCenterX;
-                        const padlockY = lockCenterY + Math.floor(lockSize * 0.2); // Slightly below center
-                        
-                        // Padlock body (rectangle)
-                        ctx.fillStyle = '#2C1810'; // Very dark brown/black for padlock
-                        ctx.fillRect(padlockX - padlockSize, padlockY - padlockSize/2, padlockSize * 2, padlockSize);
-                        
-                        // Padlock shackle (U-shape)
-                        ctx.strokeStyle = '#2C1810';
-                        ctx.lineWidth = Math.max(1, Math.floor(padlockSize * 0.3));
+                        ctx.globalCompositeOperation = 'source-over';
+
+                        // Draw stairs inside the triangle (going down)
+                        ctx.save();
+                        // Clip to triangle area
                         ctx.beginPath();
-                        const shackleWidth = Math.floor(padlockSize * 0.8);
-                        const shackleHeight = Math.floor(padlockSize * 0.6);
-                        ctx.arc(padlockX, padlockY - padlockSize/2, shackleWidth, Math.PI, 0, false); // Half circle on top
-                        ctx.stroke();
-                        
+                        ctx.moveTo(holeCenterX, holeCenterY - holeSize); // Top
+                        ctx.lineTo(holeCenterX - holeSize, holeCenterY + holeSize); // Bottom left
+                        ctx.lineTo(holeCenterX + holeSize, holeCenterY + holeSize); // Bottom right
+                        ctx.closePath();
+                        ctx.clip();
+                        // Draw stairs: each step reaches the triangle's edges and gets dimmer as it goes down
+                        const stairCount = 7;
+                        for (let i = 0; i < stairCount; i++) {
+                            const t = i / (stairCount - 1);
+                            // Find intersection points with triangle edges for this y
+                            const y = holeCenterY - holeSize + t * (holeSize * 2);
+                            // Left and right x for triangle at this y
+                            const relY = y - (holeCenterY - holeSize);
+                            const maxX = (relY / (holeSize * 2)) * holeSize;
+                            const leftX = holeCenterX - maxX;
+                            const rightX = holeCenterX + maxX;
+                            // Shade: lighter at top, dimmer at bottom
+                            const shade = Math.round(180 - t * 100);
+                            ctx.strokeStyle = `rgb(${shade},${shade},${shade})`;
+                            ctx.lineWidth = 3;
+                            ctx.beginPath();
+                            ctx.moveTo(leftX, y);
+                            ctx.lineTo(rightX, y);
+                            ctx.stroke();
+                        }
                         ctx.restore();
                     } else if (isAnimating) {
                         // Door opening animation with smooth scaling and fading
@@ -3662,29 +3675,25 @@
                         let centerX, centerY, triangleSize;
                         
                         if (renderInLock) {
-                            // Position triangle in the door lock
+                            // Position triangle in the door lock (keep as small lock triangle)
                             const doorCanvasX = stairs.x * currentRenderTileSize + currentRenderOffsetX;
                             const doorCanvasY = stairs.y * currentRenderTileSize + currentRenderOffsetY;
                             centerX = Math.floor(doorCanvasX + currentRenderTileSize / 2);
                             centerY = Math.floor(doorCanvasY + currentRenderTileSize / 2);
                             triangleSize = Math.floor(currentRenderTileSize * 0.2); // Same size as the lock
                         } else {
-                            // Normal triangle rendering
+                            // Normal triangle rendering: fill the entire tile
                             centerX = Math.floor(renderX + currentRenderTileSize / 2);
                             centerY = Math.floor(renderY + currentRenderTileSize / 2);
-                            triangleSize = renderSize;
-                            
+                            triangleSize = currentRenderTileSize / 2;
                             // Apply fading effect during flight
                             if (triangleFlyActive) {
                                 const now = performance.now();
                                 const elapsed = now - triangleFlyStartTime;
                                 const flyProgress = Math.min(elapsed / triangleFlyDuration, 1.0);
-                                
-                                // Fade out progressively as it approaches the door
-                                let alpha = 1.0 - flyProgress; // Fade from 1.0 to 0.0 over entire flight
+                                let alpha = 1.0 - flyProgress;
                                 ctx.globalAlpha = alpha;
                             }
-                            
                             // Apply rotation if needed
                             if (renderRotation !== 0) {
                                 ctx.translate(centerX, centerY);
@@ -3692,15 +3701,36 @@
                                 ctx.translate(-centerX, -centerY);
                             }
                         }
-                        
-                        // Draw triangle
+                        // Draw equilateral triangle that touches all four tile edges
                         ctx.beginPath();
-                        ctx.moveTo(centerX, centerY - triangleSize); // Top point
-                        ctx.lineTo(centerX - triangleSize, centerY + triangleSize); // Bottom left
-                        ctx.lineTo(centerX + triangleSize, centerY + triangleSize); // Bottom right
+                        ctx.moveTo(centerX, centerY - triangleSize); // Top (middle of top edge)
+                        ctx.lineTo(centerX - triangleSize, centerY + triangleSize); // Bottom left (bottom left corner)
+                        ctx.lineTo(centerX + triangleSize, centerY + triangleSize); // Bottom right (bottom right corner)
                         ctx.closePath();
                         ctx.fill();
-                        
+
+                        // Draw a simple key image on the triangle
+                        ctx.save();
+                        // Key shaft
+                        ctx.strokeStyle = '#FFD700';
+                        ctx.lineWidth = Math.max(2, Math.floor(triangleSize * 0.13));
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, centerY);
+                        ctx.lineTo(centerX, centerY + triangleSize * 0.6);
+                        ctx.stroke();
+                        // Key bow (circle at top)
+                        ctx.beginPath();
+                        ctx.arc(centerX, centerY + triangleSize * 0.6, triangleSize * 0.18, 0, 2 * Math.PI);
+                        ctx.stroke();
+                        // Key teeth
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, centerY + triangleSize * 0.35);
+                        ctx.lineTo(centerX + triangleSize * 0.18, centerY + triangleSize * 0.35);
+                        ctx.moveTo(centerX, centerY + triangleSize * 0.45);
+                        ctx.lineTo(centerX - triangleSize * 0.13, centerY + triangleSize * 0.45);
+                        ctx.stroke();
+                        ctx.restore();
+
                         ctx.restore();
                     } else if (!key.collected) {
                         drawOffScreenIndicator(key, '#00BFFF', currentRenderOffsetX, currentRenderOffsetY, 1.0);
@@ -3884,30 +3914,33 @@
 
                 // Only draw player if not game over (player explodes and is no longer drawn as a solid block)
                     if (!gameOver) {
-                        // Draw player square
+                        // Draw player as a circle (diameter = tile size)
                         ctx.save();
                         ctx.globalAlpha = playerOpacity;
                         ctx.fillStyle = currentPlayerColor;
-                        ctx.fillRect(Math.floor(player.x * currentRenderTileSize + currentRenderOffsetX), Math.floor(player.y * currentRenderTileSize + currentRenderOffsetY), Math.floor(currentRenderTileSize), Math.floor(currentRenderTileSize));
-                        
-                        // Draw player name in a crisp font at the bottom of the square
+                        const px = player.x * currentRenderTileSize + currentRenderOffsetX;
+                        const py = player.y * currentRenderTileSize + currentRenderOffsetY;
+                        const pr = currentRenderTileSize / 2;
+                        ctx.beginPath();
+                        ctx.arc(Math.floor(px + pr), Math.floor(py + pr), pr, 0, 2 * Math.PI);
+                        ctx.fill();
+                        // Draw player name in a crisp font at the bottom of the circle
                         ctx.save();
                         ctx.globalAlpha = 1;  // Full opacity for better legibility
-                        // Crisp font with slightly reduced weight
                         ctx.font = `${Math.max(8, Math.floor(currentRenderTileSize * 0.25))}px 'VT323'`;
                         ctx.textAlign = 'center';
-                        ctx.textBaseline = 'bottom';  // Align to bottom of the square
+                        ctx.textBaseline = 'bottom';  // Align to bottom of the circle
                         // Draw black outline first for better contrast
                         ctx.strokeStyle = '#000000';
                         ctx.lineWidth = 2;
                         ctx.strokeText(player.name, 
-                            Math.floor(player.x * currentRenderTileSize + currentRenderOffsetX + currentRenderTileSize / 2), 
-                            Math.floor(player.y * currentRenderTileSize + currentRenderOffsetY + currentRenderTileSize));
+                            Math.floor(px + pr), 
+                            Math.floor(py + currentRenderTileSize));
                         // Then draw white text
                         ctx.fillStyle = '#FFFFFF';
                         ctx.fillText(player.name, 
-                            Math.floor(player.x * currentRenderTileSize + currentRenderOffsetX + currentRenderTileSize / 2), 
-                            Math.floor(player.y * currentRenderTileSize + currentRenderOffsetY + currentRenderTileSize));
+                            Math.floor(px + pr), 
+                            Math.floor(py + currentRenderTileSize));
                         ctx.restore();
                         ctx.restore();
                     ctx.save(); // Save context again for text opacity
@@ -4771,11 +4804,17 @@
          * @returns {boolean} True if combat occurred, false otherwise.
          */
         function movePlayer(dx, dy) {
-            if (gameOver) return false;
+            if (inputLocked) return false; // Block input if locked
+            inputLocked = true;
+            if (gameOver) {
+                inputLocked = false;
+                return false;
+            }
 
             // Validate player position before attempting to move
             if (isNaN(player.x) || isNaN(player.y) || player.x === null || player.y === null) {
                 console.error("Player position is invalid. Cannot move.");
+                inputLocked = false;
                 return false;
             }
 
@@ -4783,178 +4822,65 @@
             const newY = player.y + dy;
 
             if (newX < 0 || newX >= dynamicMapWidth || newY < 0 || newY >= dynamicMapHeight) {
+                inputLocked = false;
                 return false;
             }
 
             const collidedEnemyIndex = enemies.findIndex(e => e.x === newX && e.y === newY);
 
             if (collidedEnemyIndex !== -1) {
+                if (!playerHasMovedThisLevel) playerHasMovedThisLevel = true;
+                console.log('[DEBUG] Player attacks enemy FIRST');
+                // Player always attacks first if moving into an enemy (classic roguelike)
                 const attackedEnemy = enemies[collidedEnemyIndex];
-                const enemyHealthBeforeHit = attackedEnemy.health; // Store health before hit
-                const enemyInitialHealth = attackedEnemy.initialHealth; // Store initial health of this enemy
-
-                let playerAttacksFirst = Math.random() < 0.5;
-
-                let combatActionOccurred = false;
-                let damageDealtToEnemy = 0; // Declare damageDealtToEnemy here
-                let totalDamageDealtToEnemy = 0; // Track total damage dealt to enemy in this combat
-                let totalDamageDealtToPlayer = 0; // Track total damage dealt to player in this combat
-
-                combatOccurredThisTurn = true; // Mark that combat occurred this turn
-
-                if (playerAttacksFirst) {
-                    // Player attacks enemy
-                    player.thrustAnimActive = true;
-                    player.thrustAnimStartTime = performance.now();
-                    player.thrustAnimDirectionX = dx;
-                    player.thrustAnimDirectionY = dy;
-                    damageDealtToEnemy = calculateSimpleDamage(player.health); // Simple predictable damage
-                    console.log('Combat: Player attacks enemy -', 'Player health:', player.health, 'Enemy health:', attackedEnemy.health, 'Damage dealt:', damageDealtToEnemy);
-                    
-                    // Critical hits removed for fully predictable combat
-                    eventFlags.criticalStrike = false;
-
-                    damageDealtToEnemy = Math.min(damageDealtToEnemy, attackedEnemy.health);
-                    player.thrustAnimMagnitude = Math.min(1, damageDealtToEnemy / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE); // Normalize damage for thrust magnitude
-
-                    attackedEnemy.health = attackedEnemy.health - damageDealtToEnemy; // Explicit assignment
-                    // MODIFIED: Enemy flow increases when attacked by player
-                    attackedEnemy.totalDamageTakenByThisEnemy = (attackedEnemy.totalDamageTakenByThisEnemy || 0) + damageDealtToEnemy;
-                    
-                    hitsDealt = hitsDealt + 1; // Explicit assignment
-                    totalDamageDealt = totalDamageDealt + damageDealtToEnemy; // Explicit assignment
-                    damageDealtThisTurn = damageDealtThisTurn + damageDealtToEnemy; // Explicit assignment
-                    addDamageAnimation(attackedEnemy.x, attackedEnemy.y, damageDealtToEnemy, VINTAGE_GREEN, dx, dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToEnemy - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)));
-                    combatActionOccurred = true;
-
-                    if (attackedEnemy.health > 0) {
-                        // Enemy counter-attacks player
-                        attackedEnemy.thrustAnimActive = true;
-                        attackedEnemy.thrustAnimStartTime = performance.now();
-                        attackedEnemy.thrustAnimDirectionX = -dx; // Attack back towards player
-                        attackedEnemy.thrustAnimDirectionY = -dy;
-                        // Use enemy.totalDamageTakenByThisEnemy for enemy flow.
-                        // If no damage taken yet, use enemy.flowLevel for initial flow.
-                        let damageDealtToPlayer = calculateSimpleDamage(attackedEnemy.health); // Simple predictable damage
-                        
-                        // Critical hits removed for fully predictable combat
-                        
-                        damageDealtToPlayer = Math.min(damageDealtToPlayer, player.health);
-                        totalDamageDealtToPlayer = totalDamageDealtToPlayer + damageDealtToPlayer; // Track damage
-                        attackedEnemy.thrustAnimMagnitude = Math.min(1, damageDealtToPlayer / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE);
-                        attackedEnemy.totalDamageDealtByThisEnemy = attackedEnemy.totalDamageDealtByThisEnemy + damageDealtToPlayer; // Explicit assignment
-
-                        player.health = player.health - damageDealtToPlayer; // Explicit assignment
-                        hitsTaken = hitsTaken + 1; // Explicit assignment
-                        hitsTakenThisTurn = hitsTakenThisTurn + 1; // Explicit assignment
-                        if (damageDealtToPlayer > 0) {
-                            playerTookDamageInCombatThisTurn = true; // Player took damage in combat
-                        }
-                        addDamageAnimation(player.x, player.y, damageDealtToPlayer, VINTAGE_GREEN, -dx, -dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToPlayer - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)), 200);
-                    }
-                } else {
-                    // Enemy attacks player first
-                    attackedEnemy.thrustAnimActive = true;
-                    attackedEnemy.thrustAnimStartTime = performance.now();
-                    attackedEnemy.thrustAnimDirectionX = -dx;
-                    attackedEnemy.thrustAnimDirectionY = -dy;
-                    // Use enemy.totalDamageTakenByThisEnemy for enemy flow.
-                    // If no damage taken yet, use enemy.flowLevel for initial flow.
-                    let damageDealtToPlayer = calculateSimpleDamage(attackedEnemy.health); // Simple predictable damage
-                    
-                    // Critical hits removed for fully predictable combat
-                    
-                    damageDealtToPlayer = Math.min(damageDealtToPlayer, player.health);
-                    attackedEnemy.thrustAnimMagnitude = Math.min(1, damageDealtToPlayer / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE);
-                    attackedEnemy.totalDamageDealtByThisEnemy = attackedEnemy.totalDamageDealtByThisEnemy + damageDealtToPlayer; // Explicit assignment
-
-                    player.health = player.health - damageDealtToPlayer; // Explicit assignment
-                    hitsTaken = hitsTaken + 1; // Explicit assignment
-                    hitsTakenThisTurn = hitsTakenThisTurn + 1; // Explicit assignment
-                    if (damageDealtToPlayer > 0) {
-                        playerTookDamageInCombatThisTurn = true; // Player took damage in combat
-                    }
-                    addDamageAnimation(player.x, player.y, damageDealtToPlayer, VINTAGE_GREEN, -dx, -dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToPlayer - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)));
-                    combatActionOccurred = true;
-
-                    if (player.health > 0) {
-                        // Player counter-attacks enemy
-                        player.thrustAnimActive = true;
-                        player.thrustAnimStartTime = performance.now();
-                        player.thrustAnimDirectionX = dx;
-                        player.thrustAnimDirectionY = dy;
-                        damageDealtToEnemy = calculateSimpleDamage(player.health); // Simple predictable damage
-                    
-                    // Critical hits removed for fully predictable combat
-                    eventFlags.criticalStrike = false;
-
-                    damageDealtToEnemy = Math.min(damageDealtToEnemy, attackedEnemy.health);
-                    totalDamageDealtToEnemy = totalDamageDealtToEnemy + damageDealtToEnemy; // Track damage
-                    player.thrustAnimMagnitude = Math.min(1, damageDealtToEnemy / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE); // Normalize damage for thrust magnitude
-
-                    attackedEnemy.health = attackedEnemy.health - damageDealtToEnemy; // Explicit assignment
-                        // MODIFIED: Enemy flow increases when attacked by player
-                        attackedEnemy.totalDamageTakenByThisEnemy = (attackedEnemy.totalDamageTakenByThisEnemy || 0) + damageDealtToEnemy;
-                        
-                        hitsDealt = hitsDealt + 1; // Explicit assignment
-                        totalDamageDealt = totalDamageDealt + damageDealtToEnemy; // Explicit assignment
-                        damageDealtThisTurn = damageDealtThisTurn + damageDealtToEnemy; // Explicit assignment
-                        addDamageAnimation(attackedEnemy.x, attackedEnemy.y, damageDealtToEnemy, VINTAGE_GREEN, dx, dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToEnemy - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)), 200);
-                    }
-                }
-
+                const enemyHealthBeforeHit = attackedEnemy.health;
+                let damageDealtToEnemy = calculateSimpleDamage(player.health);
+                damageDealtToEnemy = Math.min(damageDealtToEnemy, attackedEnemy.health);
+                attackedEnemy.health -= damageDealtToEnemy;
+                attackedEnemy.totalDamageTakenByThisEnemy = (attackedEnemy.totalDamageTakenByThisEnemy || 0) + damageDealtToEnemy;
+                hitsDealt++;
+                totalDamageDealt += damageDealtToEnemy;
+                damageDealtThisTurn += damageDealtToEnemy;
+                combatOccurredThisTurn = true;
+                addDamageAnimation(attackedEnemy.x, attackedEnemy.y, damageDealtToEnemy, VINTAGE_GREEN, dx, dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToEnemy - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)));
+                let attackedEnemySurvived = false;
                 if (attackedEnemy.health <= 0) {
-                    console.log('Enemy died:', attackedEnemy.name, 'Health:', attackedEnemy.health, 'Damage dealt:', damageDealtToEnemy);
-                    // Calculate spread factor for explosion based on damage dealt
+                    // Enemy dies
                     const explosionSpread = ENEMY_DEATH_EXPLOSION_BASE_SPREAD + (damageDealtToEnemy * ENEMY_DEATH_EXPLOSION_DAMAGE_SPREAD_MULTIPLIER);
-                    addExplosionAnimation(attackedEnemy.x, attackedEnemy.y, FIXED_COLOR_ENEMY, enemyHealthBeforeHit, undefined, undefined, explosionSpread); // Pass explosionSpread
-
-                    // MODIFIED: "One-Shot Kill" detection - only if enemy went from initial health to 0
+                    addExplosionAnimation(attackedEnemy.x, attackedEnemy.y, FIXED_COLOR_ENEMY, enemyHealthBeforeHit, undefined, undefined, explosionSpread);
+                    // One-Shot Kill event
                     if (attackedEnemy.initialHealth === enemyHealthBeforeHit && attackedEnemy.health <= 0) {
                         const isMajor = enemyHealthBeforeHit >= ONE_SHOT_MAJOR_HEALTH;
                         const logMessage = `${player.name} eliminated ${attackedEnemy.name} (HP: ${enemyHealthBeforeHit}) in a single devastating strike`;
-                        
                         addEventMessage("One-Shot Kill!", isMajor, logMessage);
                         eventFlags.oneShotKill = true;
                     } else {
                         eventFlags.oneShotKill = false;
                     }
-
-                    // Calculate pickup scatter magnitude based on damage dealt
-                    const pickupScatterMagnitude = PICKUP_SCATTER_BASE_SPREAD + (damageDealtToEnemy * PICKUP_SCATTER_DAMAGE_MULTIPLIER);
-
-                    // Enemy drops exactly the amount of health it had before the final hit
+                    // Drop health pickups
                     let remainingDroppedHealth = enemyHealthBeforeHit;
-
-                    // Denominations for splitting
-                    const denominations = [10, 5, 1]; // Prioritize larger denominations
-
+                    const denominations = [10, 5, 1];
+                    const pickupScatterMagnitude = PICKUP_SCATTER_BASE_SPREAD + (damageDealtToEnemy * PICKUP_SCATTER_DAMAGE_MULTIPLIER);
                     while (remainingDroppedHealth > 0) {
-                        // Calculate scatter position, ensuring it stays within playable area
                         let scatterX, scatterY;
                         let attempts = 0;
                         const maxAttempts = 20;
-                        
                         do {
-                            const randomOffsetX = (Math.random() - 0.5) * 2.0 * pickupScatterMagnitude; // Scatter in tile units
+                            const randomOffsetX = (Math.random() - 0.5) * 2.0 * pickupScatterMagnitude;
                             const randomOffsetY = (Math.random() - 0.5) * 2.0 * pickupScatterMagnitude;
-                            
                             scatterX = Math.round(attackedEnemy.x + randomOffsetX);
                             scatterY = Math.round(attackedEnemy.y + randomOffsetY);
                             attempts++;
                         } while (attempts < maxAttempts && (
-                            scatterX < 0 || scatterX >= dynamicMapWidth || 
+                            scatterX < 0 || scatterX >= dynamicMapWidth ||
                             scatterY < 0 || scatterY >= dynamicMapHeight ||
                             gameMap[scatterY][scatterX] !== TILE_FLOOR
                         ));
-                        
-                        // If no valid position found, place on enemy's tile
                         if (scatterX < 0 || scatterX >= dynamicMapWidth || scatterY < 0 || scatterY >= dynamicMapHeight ||
                             gameMap[scatterY][scatterX] !== TILE_FLOOR) {
                             scatterX = attackedEnemy.x;
                             scatterY = attackedEnemy.y;
                         }
-
                         let valueToDrop = 0;
                         for (const denom of denominations) {
                             if (remainingDroppedHealth >= denom) {
@@ -4963,44 +4889,47 @@
                             }
                         }
                         if (valueToDrop === 0 && remainingDroppedHealth > 0) {
-                            valueToDrop = remainingDroppedHealth; // Drop remaining as a 1 if it's less than smallest denom
+                            valueToDrop = remainingDroppedHealth;
                         }
-
                         if (valueToDrop > 0) {
                             staticDamageNumbers.push({
                                 x: scatterX,
                                 y: scatterY,
-                                parts: [{ content: { type: 'number', value: valueToDrop }, offsetX: 0, offsetY: 0 }], // No sub-tile offset needed
+                                parts: [{ content: { type: 'number', value: valueToDrop }, offsetX: 0, offsetY: 0 }],
                                 isEnemyDrop: true
                             });
                             remainingDroppedHealth -= valueToDrop;
                         } else {
-                            break; // Should not happen if remainingDroppedHealth > 0
+                            break;
                         }
                     }
-
-                    // Add activity log entry for the kill
-                    addActivityLogEntry(player, attackedEnemy, totalDamageDealtToEnemy, totalDamageDealtToPlayer);
-                    
-                    // Track killed enemy for events
+                    addActivityLogEntry(player, attackedEnemy, damageDealtToEnemy, 0);
                     killedEnemiesThisTurn.push(attackedEnemy.name);
-                    
                     enemies.splice(collidedEnemyIndex, 1);
-                    enemiesKilledThisTurn = enemiesKilledThisTurn + 1; // Explicit assignment
+                    enemiesKilledThisTurn++;
+                } else {
+                    attackedEnemySurvived = true;
                 }
-
-                // Sanity check for player health after combat
                 if (isNaN(player.health)) {
                     console.error("Player health became NaN during combat! Forcing game over.");
-                    player.health = 0; // Set to 0 to trigger game over
+                    player.health = 0;
                 }
-
                 if (player.health <= 0) {
                     console.log("DEBUG: Player died in combat! Health:", player.health, "Level:", player.level);
-                    player.health = 0; // Ensure health doesn't go negative for display
+                    player.health = 0;
                     handleGameOver();
                 }
-                // Always return true if combat occurred, regardless of outcome
+                // After player attacks, enemies take their turn (never before)
+                if (!gameOver) {
+                    // Pass the attacked enemy to enemyTurn so it cannot attack back if it survived
+                    setTimeout(() => {
+                        enemyTurn(attackedEnemySurvived ? attackedEnemy : null);
+                        inputLocked = false;
+                    }, 0);
+                    console.log('[DEBUG] Enemies attack AFTER player action');
+                } else {
+                    inputLocked = false;
+                }
                 return true;
             }
 
@@ -5008,6 +4937,7 @@
             const playerMoved = moveEntityTowardsTarget(player, newX, newY, obstaclesForPlayer);
 
             if (playerMoved) {
+                if (!playerHasMovedThisLevel) playerHasMovedThisLevel = true;
                 stepsTaken = stepsTaken + 1; // Explicit assignment
                 // Mark current tile as visited for "Map Explorer"
                 if (visitedTiles[player.y] && visitedTiles[player.y][player.x] !== undefined) {
@@ -5023,10 +4953,10 @@
                     triangleFlyStartTime = performance.now();
                     triangleFlyStartPos = { x: key.x, y: key.y };
                     triangleFlyEndPos = { x: stairs.x, y: stairs.y };
-                    
+            
                     key.collected = true;
                     console.log("Remote control collected!");
-                    
+            
                     // Start door opening animation after a short delay
                     doorAnimTimeoutId = setTimeout(() => {
                         doorAnimActive = true;
@@ -5045,17 +4975,29 @@
                         doorShakeStartTime = performance.now();
                     }
                 }
-                // Enemy turn is now called after player moves, regardless of combat
-                enemyTurn();
-                return false;
+                // After player moves, enemies take their turn
+                if (!gameOver) {
+                    setTimeout(() => {
+                        enemyTurn();
+                        inputLocked = false;
+                    }, 0);
+                } else {
+                    inputLocked = false;
+                }
+                return true;
             }
+            inputLocked = false;
             return false;
         }
 
         /**
          * Handles enemy turns. Each enemy moves based on its assigned role.
          */
-        function enemyTurn() {
+        function enemyTurn(skipEnemy = null) {
+            if (!playerHasMovedThisLevel) {
+                // Strict first-move protection: do not allow any enemy actions before player moves
+                return;
+            }
             // If game is over, enemies only swarm player remains
             if (gameOver) {
                 enemies.forEach(enemy => {
@@ -5104,136 +5046,111 @@
             const TRACKER_AGGRO_RADIUS = 8;
             const GLOBAL_STOP_CHANCE = 0.2; // 20% chance for any enemy to stop
 
+            // After player acts, all adjacent enemies attack if player is next to them (classic roguelike)
+            const cardinalDirs = [
+                { dx: 0, dy: 1 },
+                { dx: 0, dy: -1 },
+                { dx: 1, dy: 0 },
+                { dx: -1, dy: 0 }
+            ];
+            enemies.forEach(enemy => {
+                const isAdjacent = cardinalDirs.some(dir =>
+                    enemy.x === player.x + dir.dx && enemy.y === player.y + dir.dy
+                );
+                if (isAdjacent && player.health > 0) {
+                    enemy.thrustAnimActive = true;
+                    enemy.thrustAnimStartTime = performance.now();
+                    let dx = player.x - enemy.x;
+                    let dy = player.y - enemy.y;
+                    if (Math.abs(dx) > 0 && Math.abs(dy) > 0) {
+                        if (Math.random() < 0.5) dy = 0;
+                        else dx = 0;
+                    }
+                    enemy.thrustAnimDirectionX = dx;
+                    enemy.thrustAnimDirectionY = dy;
+                    let damageDealtToPlayer = calculateSimpleDamage(enemy.health);
+                    damageDealtToPlayer = Math.min(damageDealtToPlayer, player.health);
+                    enemy.thrustAnimMagnitude = Math.min(1, damageDealtToPlayer / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE);
+                    enemy.totalDamageDealtByThisEnemy = enemy.totalDamageDealtByThisEnemy + damageDealtToPlayer;
+                    player.health = player.health - damageDealtToPlayer;
+                    hitsTaken = hitsTaken + 1;
+                    hitsTakenThisTurn = hitsTakenThisTurn + 1;
+                    if (damageDealtToPlayer > 0) {
+                        playerTookDamageInCombatThisTurn = true;
+                    }
+                    addDamageAnimation(player.x, player.y, damageDealtToPlayer, VINTAGE_GREEN, dx, dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToPlayer - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)));
+                    addEventMessage(`${enemy.name} attacks for ${damageDealtToPlayer}!`, false);
+                    if (isNaN(player.health)) {
+                        console.error("Player health became NaN during enemy attack! Forcing game over.");
+                        player.health = 0;
+                    }
+                    if (player.health <= 0) {
+                        console.log("DEBUG: Player died in enemy attack! Health:", player.health, "Level:", player.level);
+                        player.health = 0;
+                        handleGameOver();
+                        // Allow all enemies to process their attack, but skip further attacks if player is dead
+                    }
+                }
+            });
+
             enemies.forEach(enemy => {
                 // Apply global random stop chance before any movement logic
                 if (Math.random() < GLOBAL_STOP_CHANCE) {
                     // Enemy decided to stop this turn
                     return;
                 }
-
-                let enemyAttackedThisTurn = false; // Flag for this enemy's turn
-
-                // Check for unprovoked attack if player is adjacent (cardinal directions only, matching player attack rules)
-                const dx_check = Math.abs(player.x - enemy.x);
-                const dy_check = Math.abs(player.y - enemy.y);
-                const isPlayerAdjacent = (dx_check <= 1 && dy_check <= 1) && (dx_check + dy_check === 1); // Only cardinal directions
-                if (isPlayerAdjacent) {
-                    // Use enemy.totalDamageTakenByThisEnemy for enemy flow.
-                    // If no damage taken yet, use enemy.flowLevel for initial flow.
-                    // Simplified: 30% chance for enemy to attack when adjacent
-                    if (Math.random() < 0.3) {
-                        // Enemy attacks unprovoked
-                        enemy.thrustAnimActive = true;
-                        enemy.thrustAnimStartTime = performance.now();
-                        let dx = player.x - enemy.x; // Change to let
-                        let dy = player.y - enemy.y; // Change to let
-                        // Ensure attacks are cardinal only
-                        if (Math.abs(dx) > 0 && Math.abs(dy) > 0) { // If diagonal, pick one axis
-                            if (Math.random() < 0.5) dy = 0;
-                            else dx = 0;
-                        }
-
-                        enemy.thrustAnimDirectionX = dx;
-                        enemy.thrustAnimDirectionY = dy;
-
-                        let damageDealtToPlayer = calculateSimpleDamage(enemy.health); // Simple predictable damage
-                        
-                        // Critical hits removed for fully predictable combat
-                        
-                        damageDealtToPlayer = Math.min(damageDealtToPlayer, player.health);
-                        enemy.thrustAnimMagnitude = Math.min(1, damageDealtToPlayer / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE);
-                        enemy.totalDamageDealtByThisEnemy = enemy.totalDamageDealtByThisEnemy + damageDealtToPlayer; // Explicit assignment
-
-                        player.health = player.health - damageDealtToPlayer; // Explicit assignment
-                        hitsTaken = hitsTaken + 1; // Explicit assignment
-                        hitsTakenThisTurn = hitsTakenThisTurn + 1; // Explicit assignment
-                        if (damageDealtToPlayer > 0) {
-                            playerTookDamageInCombatThisTurn = true; // Player took damage in combat
-                        }
-                        addDamageAnimation(player.x, player.y, damageDealtToPlayer, VINTAGE_GREEN, dx, dy, Math.min(MAX_DAMAGE_ANIM_DURATION, MIN_DAMAGE_ANIM_DURATION + (damageDealtToPlayer - 1) * ((MAX_DAMAGE_ANIM_DURATION - MIN_DAMAGE_ANIM_DURATION) / MAX_DAMAGE_VALUE_FOR_ANIM_SCALE)));
-
-                        // Sanity check for player health after combat
-                        if (isNaN(player.health)) {
-                            console.error("Player health became NaN during enemy unprovoked attack! Forcing game over.");
-                            player.health = 0;
-                        }
-                        if (player.health <= 0) {
-                            console.log("DEBUG: Player died in enemy unprovoked attack! Health:", player.health, "Level:", player.level);
-                            player.health = 0;
-                            handleGameOver();
-                            return; // Stop further enemy turns if game over
-                        }
-                        enemyAttackedThisTurn = true;
-                    }
-                }
-
-                if (!enemyAttackedThisTurn) { // Only move if no unprovoked attack occurred
+                // Only move if player is alive
+                if (player.health > 0) {
                     const obstaclesForThisEnemy = enemies.filter(e => e !== enemy).concat(player);
-                    let moved = false; // Flag to track if enemy successfully moved
-
-                    // New: Check enemy's flowLevel for following chance
-                    // MODIFIED: Enemy flow is now based on totalDamageTakenByThisEnemy
-                    if (Math.random() < (enemy.totalDamageTakenByThisEnemy > 0 ? enemy.totalDamageTakenByThisEnemy / (enemy.stepsTakenByThisEnemy || 1) : 0)) { // If random number is less than flowLevel, enemy follows
+                    let moved = false;
+                    if (enemy.role === 'hunter') {
                         moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
-                    } else { // Otherwise, enemy performs its role-based movement
-                        if (enemy.role === 'hunter') {
-                            // Hunters always try to move towards the player if not following by flow
-                            moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
-                        } else if (enemy.role === 'guard') {
-                            if (stairs && stairs.x !== undefined && stairs.y !== undefined) {
-                                const distToStairs = getDistance(enemy, stairs);
-
-                                if (distToStairs > GUARD_PATROL_RADIUS) {
-                                    moved = moveEntityTowardsTarget(enemy, stairs.x, stairs.y, obstaclesForThisEnemy, stairs);
-                                } else {
-                                    if (Math.random() < GUARD_MOVE_CHANCE) { // Guard-specific stop chance
-                                        // Only cardinal directions for guard's random movement
-                                        const cardinalDirections = [[0, 1], [0, -1], [1, 0], [-1, 0]];
-                                        let bestMove = null;
-                                        let minCombinedDistance = Infinity;
-
-                                        for (const [dx, dy] of cardinalDirections) { // Iterate over cardinal directions
-                                            const newX = enemy.x + dx;
-                                            const newY = enemy.y + dy;
-
-                                            if (newX >= 0 && newX < dynamicMapWidth && newY >= 0 && newY < dynamicMapHeight &&
-                                                (gameMap[newY][newX] === TILE_FLOOR || gameMap[newY][newX] === TILE_STAIRS) && // Move onto floor or stairs tiles
-                                                !(newX === player.x && newY === player.y) &&
-                                                !obstaclesForThisEnemy.some(o => o.x === newX && o.y === newY) &&
-                                                (stairs && stairs.x !== undefined && stairs.y !== undefined && getDistance({x: newX, y: newY}, stairs) <= GUARD_PATROL_RADIUS + 1)) { // Allow movement to stairs
-
-                                                const distToPlayer = getDistance({x: newX, y: newY}, player);
-                                                const distToStairsFromNewPos = getDistance({x: newX, y: newY}, stairs);
-
-                                                const combinedDistance = distToPlayer + distToStairsFromNewPos;
-
-                                                if (combinedDistance < minCombinedDistance) {
-                                                    minCombinedDistance = combinedDistance;
-                                                    bestMove = {x: newX, y: newY};
-                                                }
+                    } else if (enemy.role === 'guard') {
+                        if (stairs && stairs.x !== undefined && stairs.y !== undefined) {
+                            const distToStairs = getDistance(enemy, stairs);
+                            if (distToStairs > GUARD_PATROL_RADIUS) {
+                                moved = moveEntityTowardsTarget(enemy, stairs.x, stairs.y, obstaclesForThisEnemy, stairs);
+                            } else {
+                                if (Math.random() < GUARD_MOVE_CHANCE) {
+                                    const cardinalDirections = [[0, 1], [0, -1], [1, 0], [-1, 0]];
+                                    let bestMove = null;
+                                    let minCombinedDistance = Infinity;
+                                    for (const [dx, dy] of cardinalDirections) {
+                                        const newX = enemy.x + dx;
+                                        const newY = enemy.y + dy;
+                                        if (newX >= 0 && newX < dynamicMapWidth && newY >= 0 && newY < dynamicMapHeight &&
+                                            (gameMap[newY][newX] === TILE_FLOOR || gameMap[newY][newX] === TILE_STAIRS) &&
+                                            !(newX === player.x && newY === player.y) &&
+                                            !obstaclesForThisEnemy.some(o => o.x === newX && o.y === newY) &&
+                                            (stairs && stairs.x !== undefined && stairs.y !== undefined && getDistance({x: newX, y: newY}, stairs) <= GUARD_PATROL_RADIUS + 1)) {
+                                            const distToPlayer = getDistance({x: newX, y: newY}, player);
+                                            const distToStairsFromNewPos = getDistance({x: newX, y: newY}, stairs);
+                                            const combinedDistance = distToPlayer + distToStairsFromNewPos;
+                                            if (combinedDistance < minCombinedDistance) {
+                                                minCombinedDistance = combinedDistance;
+                                                bestMove = {x: newX, y: newY};
                                             }
                                         }
-
-                                        if (bestMove) {
-                                            enemy.x = bestMove.x;
-                                            enemy.y = bestMove.y;
-                                            moved = true; // Mark as moved
-                                        }
+                                    }
+                                    if (bestMove) {
+                                        enemy.x = bestMove.x;
+                                        enemy.y = bestMove.y;
+                                        moved = true;
                                     }
                                 }
-                            } else {
-                                moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
                             }
-                        } else if (enemy.role === 'tracker') {
-                            const distToPlayer = getDistance(enemy, player);
-                            if (distToPlayer <= TRACKER_AGGRO_RADIUS) {
-                                moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
+                        } else {
+                            moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
+                        }
+                    } else if (enemy.role === 'tracker') {
+                        const distToPlayer = getDistance(enemy, player);
+                        if (distToPlayer <= TRACKER_AGGRO_RADIUS) {
+                            moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
+                        } else {
+                            if (stairs && stairs.x !== undefined && stairs.y !== undefined) {
+                                moved = moveEntityTowardsTarget(enemy, stairs.x, stairs.y, obstaclesForThisEnemy, stairs);
                             } else {
-                                if (stairs && stairs.x !== undefined && stairs.y !== undefined) {
-                                    moved = moveEntityTowardsTarget(enemy, stairs.x, stairs.y, obstaclesForThisEnemy, stairs);
-                                } else {
-                                    moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
-                                }
+                                moved = moveEntityTowardsTarget(enemy, player.x, player.y, obstaclesForThisEnemy, stairs);
                             }
                         }
                     }
@@ -5953,11 +5870,9 @@
             currentLevel = currentLevel + 1; // Explicit assignment
             initGame(false); // No overlay when progressing levels
 
-            // Restart auto mode if it was active
-            if (previousAutoMode) {
-                autoMode = previousAutoMode;
-                startAutomatedMovement();
-            }
+            // Do NOT call enemyTurn() here. Wait for player action on new level.
+
+            // Do NOT restart auto mode after level transition. Player must act first on new level.
         }
 
         /**
@@ -6147,6 +6062,11 @@
          * @param {KeyboardEvent} event - The keyboard event.
          */
         function handleKeyDown(event) {
+            // Block all input if inputLocked is true
+            if (typeof inputLocked !== 'undefined' && inputLocked) {
+                event.preventDefault();
+                return;
+            }
             // If the game start overlay is active, any key press will dismiss it
             if (gameStartedOverlayActive) {
                 gameStartedOverlayActive = false;
@@ -6226,6 +6146,7 @@
                     movePlayer(1, 0);
                     break;
             }
+            // (Removed duplicate inputLocked check from end of function)
         }
 
         // Controller/Gamepad Support Variables
@@ -6492,9 +6413,11 @@
          * @param {boolean} showGameStartOverlay - Whether to show the "HARD DIVISION" overlay.
          */
         function initGame(resetGameStats = true, showGameStartOverlay = false) {
+            playerHasMovedThisLevel = false;
             console.log('=== initGame() called ===', { resetGameStats, showGameStartOverlay });
             const wasGameOver = gameOver; // Capture state before resetting gameOver
             gameOver = false;
+            window.removeEventListener('keydown', handleKeyDown); // Prevent duplicate listeners
             window.addEventListener('keydown', handleKeyDown);
             
             console.log('About to check currentLevel and reset stats...');
@@ -6587,6 +6510,7 @@
             if (!enemies) {
                 enemies = [];
             }
+            // Do NOT call enemyTurn() here. Wait for player action on new level.
             
             if (resetGameStats) {
                 player.x = 0; // Reset player position
@@ -6913,6 +6837,7 @@
             }
             
             // Set up event listeners
+            window.removeEventListener('keydown', handleKeyDown); // Prevent duplicate listeners
             window.addEventListener('keydown', handleKeyDown);
             window.addEventListener('resize', resizeCanvas);
             
