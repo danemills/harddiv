@@ -22,12 +22,13 @@
     <script src="js/constants.js"></script>
     <script src="js/utils.js"></script>
     <script src="js/nameGenerator.js"></script>
+    <script src="js/core/gameState.js"></script>
+    <script src="js/core/gameLogic.js"></script>
+    <script src="js/map/worldManager.js"></script>
+    <script src="js/rendering/renderer.js"></script>
+    <script src="js/input/inputHandler.js"></script>
 
     <script>
-    // --- Prevent enemies from acting before player moves on a new level ---
-    var playerHasMovedThisLevel = false;
-    // --- GLOBAL TURN LOCK ---
-    var inputLocked = false;
         // Test that external files loaded correctly
         console.log("=== CHECKING EXTERNAL MODULES ===");
         console.log("- Constants loaded:", typeof CANVAS_WIDTH_INITIAL !== 'undefined');
@@ -49,82 +50,6 @@
         
         // Game constants (remaining ones not moved to constants.js yet)
         // Copy essential constants for compatibility
-        const GAME_START_OVERLAY_DURATION = OVERLAY_ZOOM_DURATION + OVERLAY_FADE_DURATION;
-        // World progression variables
-        let currentWorld = 1;
-        let unlockedWorlds = [1]; // World 1 is always unlocked
-        let totalPlayerScore = 0; // Accumulated score across all runs
-
-        // Colors (mutable - will be set by world theme) - defined in external modules
-
-        // Game state variables are declared below with 'let' and initialized in initGame()
-        // Player and enemy objects now include thrust animation properties
-
-        // Activity log state
-        let activityLog = [];
-
-        // Killed enemies tracking for events
-        let killedEnemiesThisTurn = [];
-
-        // New global state for death animation
-        let deathAnimationActive = false;
-        let deathAnimationStartTime = 0;
-        let timeScale = 1; // Global time scale for animations
-
-        // Game start zoom state
-        let gameStartZoomStartTime = 0;
-
-        // Title screen state
-        let gameStartedOverlayStartTime = 0;
-
-        // Restart text animation state
-        let restartTextAnimationActive = false;
-        let restartTextAnimationStartTime = 0;
-        let restartTextParticles = [];
-
-        // Game running state (always true after initial load now)
-        let isGameRunning = true; // Game is always running after initial load now
-
-        // Game statistics
-        let hitsDealt = 0;
-        let hitsTaken = 0;
-        let stepsTaken = 0;
-        let totalDamageDealt = 0;
-        let playerFlow = 0;
-
-        // Per-level score tracking variables (needed for level transitions)
-        let totalScore = 0;
-        let enemiesSpawnedThisLevel = 0;
-        let levelStartSteps = 0;
-        let levelStartDamage = 0;
-        let levelStartHitsTaken = 0;
-        let lastLevelScoreBreakdown = null;
-
-        // Auto-movement state
-        let autoMode = null;
-        let autoMovePath = [];
-        let currentPathIndex = 0;
-        let autoMoveTimeoutId = null;
-
-        // Auto-move speed variables
-        let AUTO_MOVE_SPEED = DEFAULT_AUTO_MOVE_SPEED;
-
-        // Pathfinding cache for performance optimization
-        let pathfindingCache = new Map();
-        let cacheValidationFrame = 0;
-
-        // Spatial indexing for entity management optimization
-        let spatialIndex = new Map(); // Grid-based spatial index for fast entity queries
-        let spatialGridSize = SPATIAL_GRID_SIZE; // Use constant from constants.js
-        let spatialIndexValid = false;
-
-        // Performance monitoring
-        let performanceStats = {
-            pathfindingCalls: 0,
-            cacheHits: 0,
-            cacheMisses: 0,
-            lastResetTime: performance.now()
-        };
 
         /**
          * Log performance statistics periodically
@@ -244,185 +169,10 @@
             spatialIndexValid = false;
         }
 
-        // Damage animation duration constants
-        const MIN_DAMAGE_ANIM_DURATION = 300;
-        const MAX_DAMAGE_ANIM_DURATION = 1000;
-        const MAX_DAMAGE_VALUE_FOR_ANIM_SCALE = 10;
-
-
-
-
-
-        // Global variables
-        let gameCanvas;
-        let ctx;
-        let gameMap;
-        let dynamicMapWidth;
-        let dynamicMapHeight; 
-        let player;
-        let stairs;
-        let key;
-        let doorAnimActive = false;
-        let doorAnimStartTime = 0;
-        let doorAnimDuration = 1000; // 1000ms (1 second) door opening animation
-        let doorAnimTimeoutId = null; // Track door animation timeout for cleanup
-        let doorShakeActive = false;
-        let doorShakeStartTime = 0;
-        let doorShakeDuration = 800; // 800ms slower shake animation
-        let triangleFlyActive = false;
-        let triangleFlyStartTime = 0;
-        let triangleFlyDuration = 600; // 600ms triangle flight animation
-        let triangleFlyStartPos = { x: 0, y: 0 };
-        let triangleFlyEndPos = { x: 0, y: 0 };
-        let teleportAnimActive = false;
-        let teleportAnimStartTime = 0;
-        let teleportAnimDuration = 1200; // 1200ms teleport beam animation (slower)
-        let teleportStartPos = { x: 0, y: 0 };
-        let teleportEndPos = { x: 0, y: 0 };
-        let enemies;
-        let currentLevel;
-        let gameOver;
-        let dynamicTileSize;
-        let visitedTiles;
-        let gameStartZoomActive;
-        let gameStartedOverlayActive;
-        
-        // Animation frame ID for controlling the game loop
-        let animationFrameId = null;
-
         // --- New constants and variables for event detection and display ---
-        let gameHistory = []; // Stores snapshots for event detection
-        const HISTORY_LENGTH = 15; // Number of turns to keep in history for analysis
-
-        let activeEventMessages = []; // Messages currently displayed on screen
 
         // === Enhanced Event System Constants ===
-        
-        // === COMBAT EVENTS ===
-        // Offensive Combat Events
-        // Critical hit constants removed - system now uses predictable damage only
-        const ONE_SHOT_MIN_HEALTH = 5; // Minimum enemy health for one-shot
-        const ONE_SHOT_MAJOR_HEALTH = 12; // Major one-shot kill threshold
-        const KILLING_SPREE_COUNT = 3; // Enemies for killing spree
-        const KILLING_SPREE_MAJOR_COUNT = 5; // Major killing spree
-        const MASSACRE_COUNT = 7; // Enemies for massacre event
-        const FLAWLESS_VICTORY_TURNS = 5; // Turns without taking damage while dealing damage
-        const BERSERKER_DAMAGE_THRESHOLD = 30; // Total damage in short period
-        const BERSERKER_TURNS = 3; // Time window for berserker mode
-        const EXECUTION_LOW_HEALTH_RATIO = 0.15; // Enemy health ratio for execution
-        const COMBO_KILLS_COUNT = 2; // Consecutive kills for combo
-        const OVERKILL_DAMAGE_RATIO = 2.0; // Damage dealt vs enemy health for overkill
-        const HEADHUNTER_HIGH_VALUE_ENEMY = 15; // High-value enemy health threshold
-        const GLASS_CANNON_DAMAGE_RATIO = 3.0; // Damage dealt vs health remaining
-        
-        // Defensive Combat Events
-        const SURROUNDED_THRESHOLD = 2; // Adjacent enemies for surrounded
-        const SURROUNDED_MAJOR_THRESHOLD = 4; // Major surrounded event
-        const ENEMY_OVERWHELM_THRESHOLD = 18; // Combined enemy health
-        const ENEMY_OVERWHELM_MAJOR_THRESHOLD = 35; // Major overwhelm
-        const LAST_STAND_HEALTH_RATIO = 0.1; // Health ratio for last stand
-        const CORNERED_THRESHOLD = 6; // Blocked directions out of 8
-        const NARROW_ESCAPE_HEALTH_RATIO = 0.05; // Health ratio for narrow escape
-        const PERFECT_DODGE_TURNS = 3; // Turns dodging all attacks
-        const SURVIVAL_INSTINCT_TURNS = 8; // Turns surviving at low health
-        const CLUTCH_HEAL_TIMING = 2; // Turns before death when healing
-        const DAMAGE_SPONGE_THRESHOLD = 25; // Total damage absorbed
-        const IRON_WILL_LOW_HEALTH_COMBAT = 0.2; // Health ratio for iron will
-        
-        // === TACTICAL EVENTS ===
-        // Movement & Positioning
-        const STRATEGIC_RETREAT_TURNS = 4; // Turns for retreat analysis
-        const RETREAT_DISTANCE_INCREASE = 3; // Distance increase needed
-        const TACTICAL_ADVANCE_DISTANCE = 4; // Distance moved toward enemies
-        const FLANKING_MANEUVER_ANGLE = 90; // Angle change for flanking
-        const AMBUSH_WAIT_TURNS = 3; // Turns waiting for enemy approach
-        const KITING_DISTANCE_MIN = 2; // Minimum distance for kiting
-        const KITING_TURNS = 4; // Turns maintaining distance while attacking
-        const MAP_CONTROL_PERCENTAGE = 0.4; // Map area controlled
-        const CHOKE_POINT_WIDTH = 1; // Narrow passage width
-        const GUERRILLA_HIT_AND_RUN = 3; // Hit and run sequence length
-        const POSITIONING_MASTER_TURNS = 6; // Optimal positioning duration
-        
-        // Resource Management
-        const HIGH_VALUE_PICKUP_THRESHOLD = 15; // Health collected
-        const HIGH_VALUE_PICKUP_MAJOR_THRESHOLD = 30; // Major pickup event
-        const PICKUP_SPREE_TURNS = 3; // Time window for pickups
-        const RESOURCE_DENIAL_COUNT = 3; // Pickups denied to enemies
-        const EFFICIENT_PATHING_TURNS = 5; // Turns for efficiency analysis
-        const WASTEFUL_MOVEMENT_THRESHOLD = 10; // Excess moves without progress
-        const GREEDY_COLLECTOR_RATIO = 0.8; // Pickup collection efficiency
-        const RESOURCE_HOARDER_COUNT = 10; // Total resources hoarded
-        
-        // === EXPLORATION EVENTS ===
-        const EXPLORER_TURNS = 6; // Turns for exploration analysis
-        const EXPLORER_TILE_PERCENTAGE = 0.2; // Map percentage explored
-        const SPEED_RUNNER_PERCENTAGE = 0.8; // Map completion speed
-        const SECRET_FINDER_CORNERS = 4; // Hidden corners discovered
-        const THOROUGH_SEARCH_PERCENTAGE = 0.9; // Near-complete exploration
-        const BACKTRACKER_REVISIT_COUNT = 5; // Tiles revisited
-        const PATHFINDER_OPTIMAL_ROUTES = 3; // Efficient path discoveries
-        const CARTOGRAPHER_MAP_COVERAGE = 0.95; // Near-complete mapping
-        
-        // === SITUATIONAL EVENTS ===
-        // Health & Recovery
-        const NEAR_DEATH_HEALTH_RATIO = 0.15; // Near-death threshold
-        const RECOVERY_HEALTH_GAIN_RATIO = 0.4; // Recovery amount needed
-        const FULL_HEALTH_TURNS = 8; // Turns at maximum health
-        const STEADY_DECLINE_TURNS = 5; // Consistent health loss
-        const HEALTH_ROLLER_COASTER_SWINGS = 3; // Major health changes
-        const REGENERATION_HEALTH_GAIN = 20; // Health gained rapidly
-        const VITALITY_HIGH_HEALTH_COMBAT = 0.8; // Health ratio for vitality
-        
-        // Persistence & Endurance
-        const LONG_FIGHT_TURNS_THRESHOLD = 12; // Extended combat duration
-        const LONG_FIGHT_MAJOR_THRESHOLD = 20; // Major long fight
-        const MARATHON_TURNS = 50; // Very long level duration
-        const UNSTOPPABLE_TURNS = 6; // No damage taken while dealing damage
-        const UNSTOPPABLE_MAJOR_TURNS = 12; // Major unstoppable streak
-        const PERSISTENCE_ENEMY_HEALTH = 20; // High-health enemy threshold
-        const GRINDING_TURNS = 15; // Slow progress against tough enemies
-        const ENDURANCE_TEST_DURATION = 30; // Extended play duration
-        const RELENTLESS_PURSUIT_TURNS = 8; // Chasing enemies consistently
-        
-        // === SPECIAL CIRCUMSTANCES ===
-        // Environmental Events
-        const STAIRS_BLOCKED_DISTANCE = 999; // No path to stairs
-        const CORNER_CAMPING_TURNS = 6; // Staying in corner
-        const CENTRAL_POSITION_DISTANCE = 3; // Distance from map center
-        const EDGE_WALKER_DISTANCE = 2; // Distance from map edge
-        const TUNNEL_VISION_WIDTH = 3; // Narrow area focus
-        const MAZE_RUNNER_COMPLEX_PATH = 15; // Complex pathfinding
-        const WALL_HUGGER_EDGE_PREFERENCE = 0.7; // Edge movement preference
-        
-        // Psychological Events
-        const CONFIDENCE_HIGH_FLOW = 2.0; // High flow state
-        const DESPERATION_LOW_HEALTH = 0.08; // Desperate health level
-        const CALCULATED_RISK_THRESHOLD = 0.3; // Health ratio for risky moves
-        const PANIC_MODE_SURROUNDED = 5; // Enemies surrounding for panic
-        const ZEN_MODE_TURNS = 10; // Calm, methodical play
-        const BERSERKER_RAGE_DAMAGE = 40; // Total damage for rage mode
-        const ICE_COLD_PRECISION_ACCURACY = 0.9; // High accuracy threshold
-        
-        // === ACHIEVEMENT EVENTS ===
-        // Milestone Events
-        const FIRST_BLOOD_LEVEL = 1; // First kill of the game
-        const PACIFIST_TURNS = 20; // Turns without dealing damage
-        const PERFECTIONIST_NO_DAMAGE = 0; // No damage taken entire level
-        const SPEEDSTER_TURN_LIMIT = 15; // Fast level completion
-        const COLLECTOR_PICKUP_RATIO = 0.9; // Pickups collected vs available
-        const COMPLETIONIST_FULL_CLEAR = 0.95; // Near-complete level clear
-        const MINIMALIST_EFFICIENT_CLEAR = 0.5; // Efficient minimal completion
-        
-        // Meta Events
-        const COMEBACK_HEALTH_DEFICIT = 0.2; // Health deficit overcome
-        const DOMINANCE_ENEMY_RATIO = 3.0; // Player health vs enemy health
-        const UNDERDOG_ENEMY_ADVANTAGE = 2.0; // Enemy advantage overcome
-        const BALANCED_APPROACH_VARIANCE = 0.3; // Consistent play style
-        const ADAPTATION_STRATEGY_CHANGES = 3; // Different approaches tried
-        const LEGENDARY_PERFORMANCE_SCORE = 1000; // High score threshold
-        const EPIC_COMEBACK_NEAR_DEATH = 0.05; // Extreme comeback threshold
-
-        const EVENT_TEXT_DURATION = 2000; // Duration for event messages
+        // Constants are now defined in js/core/gameState.js
 
         // Event tracking flags (to prevent spamming)
         let eventFlags = {
@@ -542,14 +292,6 @@
         let playerTookDamageInCombatThisTurn = false; // New: track if player took damage in combat this turn
 
         visitedTiles = []; // 2D array, true if visited
-
-
-
-        // --- Constants for HIGH_SCORE auto-mode ---
-        const HIGH_SCORE_LOW_HEALTH_THRESHOLD_RATIO = 0.3; // Player health below this will prioritize pickups
-        const HIGH_SCORE_WEAK_ENEMY_THRESHOLD_RATIO = 1.0; // Enemy is "weak" if its health is <= player.health * this ratio
-
-        // --- End new constants and variables ---
 
         // Get reference to the message areas
         const messageArea = document.getElementById('messageArea');
@@ -923,12 +665,7 @@
             COLOR_WALL = '#000000'; // Black for walls (same as void)
         }
 
-        /**
-         * Initializes the game map with walls.
-         */
-        function initializeMap() {
-            gameMap = Array(dynamicMapHeight).fill(0).map(() => Array(dynamicMapWidth).fill(TILE_WALL));
-        }
+        // Map initialization, world management, and generator functions moved to js/map/worldManager.js
 
         /**
          * Generates procedural paths using a random walk algorithm.
@@ -5296,90 +5033,6 @@
         }
 
         /**
-         * Emergency teleport function - teleports player to random empty tile but costs half their health
-         */
-        function emergencyTeleport() {
-            if (gameOver) return;
-
-            // Check if player has enough health to use teleport (need more than 1 health)
-            if (player.health <= 1) {
-                console.log("Not enough health to use emergency teleport!");
-                addEventMessage("Not enough health to teleport!", false, `${player.name} needs more than 1 health to use emergency teleport`);
-                return;
-            }
-
-            // Find all empty floor tiles
-            const emptyTiles = [];
-            for (let y = 0; y < dynamicMapHeight; y++) {
-                for (let x = 0; x < dynamicMapWidth; x++) {
-                    if (gameMap[y][x] === TILE_FLOOR) {
-                        // Check if tile is not occupied by an enemy
-                        const isOccupied = enemies.some(enemy => enemy.x === x && enemy.y === y);
-                        // Don't teleport to current position
-                        const isCurrentPosition = (x === player.x && y === player.y);
-                        // Don't teleport to stairs or key position
-                        const isStairs = (stairs.x === x && stairs.y === y);
-                        const isKey = (key && !key.collected && key.x === x && key.y === y);
-                        
-                        if (!isOccupied && !isCurrentPosition && !isStairs && !isKey) {
-                            emptyTiles.push({ x, y });
-                        }
-                    }
-                }
-            }
-
-            if (emptyTiles.length === 0) {
-                console.log("No safe teleport locations available!");
-                addEventMessage("No safe teleport locations!", false, `${player.name} cannot find a safe place to teleport`);
-                return;
-            }
-
-            // Calculate health cost (half of current health, rounded up, minimum 1)
-            const healthCost = Math.max(1, Math.ceil(player.health / 2));
-            const oldHealth = player.health;
-            const oldX = player.x;
-            const oldY = player.y;
-
-            // Apply health cost
-            player.health -= healthCost;
-            hitsTaken += 1; // Count as taking a hit for statistics
-
-            // Pick random empty tile
-            const randomTile = emptyTiles[Math.floor(Math.random() * emptyTiles.length)];
-            
-            // Start teleport animation
-            teleportStartPos = { x: oldX, y: oldY };
-            teleportEndPos = { x: randomTile.x, y: randomTile.y };
-            teleportAnimActive = true;
-            teleportAnimStartTime = performance.now();
-            
-            player.x = randomTile.x;
-            player.y = randomTile.y;
-
-            // Mark new tile as visited
-            if (!visitedTiles[player.y]) visitedTiles[player.y] = [];
-            visitedTiles[player.y][player.x] = true;
-
-            // Trigger health animation
-            player.healthAnimScale = 1.5;
-            player.healthAnimStartTime = performance.now();
-
-            // Add visual feedback
-            addEventMessage("Emergency Teleport!", true, `${player.name} teleported from (${oldX}, ${oldY}) to (${player.x}, ${player.y}) at the cost of ${healthCost} health`);
-            
-            // Add damage animation at old position to show the cost
-            addDamageAnimation(oldX, oldY, -healthCost, '#FF4444', 0, -1, 1500);
-
-            // Add pickup animation at new position to show successful teleport
-            addPickupAnimation(player.x, player.y, "TELEPORT", '#00FFFF', 1500);
-
-            console.log(`Emergency teleport: ${player.name} lost ${healthCost} health (${oldHealth} -> ${player.health}) and teleported to (${player.x}, ${player.y})`);
-
-            // Enemy turn happens after teleport
-            enemyTurn();
-        }
-
-        /**
          * Counts the number of visited tiles in the `visitedTiles` grid.
          * @returns {number} The count of visited tiles.
          */
@@ -5876,493 +5529,6 @@
         }
 
         /**
-         * Stops all automated movement (P, E modes, or Tab-based full auto-move).
-         */
-        function stopAutomatedMovement() {
-            if (autoMoveTimeoutId) {
-                clearTimeout(autoMoveTimeoutId);
-                autoMoveTimeoutId = null;
-            }
-            autoMode = null;
-            autoMovePath = [];
-            currentPathIndex = 0;
-        }
-
-        /**
-         * Finds the closest entity from a list to the player, optionally within a radius.
-         * @param {object[]} entities - The list of entities ({x, y}).
-         * @param {object} playerPos - The player's current position {x, y}.
-         * @param {number} radius - Optional maximum distance to consider. Defaults to Infinity.
-         * @returns {object|null} The closest entity, or null if none found within radius.
-         */
-        function getClosestEntity(entities, playerPos, radius = Infinity) {
-            let closest = null;
-            let minDist = Infinity;
-            entities.forEach(entity => {
-                if (entity && typeof entity.x === 'number' && typeof entity.y === 'number') {
-                    const dist = getDistance(playerPos, entity);
-                    if (dist <= radius && dist < minDist) {
-                        minDist = dist;
-                        closest = entity;
-                    }
-                }
-            });
-            return closest;
-        }
-
-        /**
-         * Starts the appropriate automated movement mode (P or E).
-         * This function determines the target based on the active autoMode and initiates the pathfinding.
-         */
-        function startAutomatedMovement() {
-            if (gameOver) {
-                stopAutomatedMovement();
-                return;
-            }
-            if (autoMode === null) return;
-
-            // Set speed for H mode
-            AUTO_MOVE_SPEED = DEFAULT_AUTO_MOVE_SPEED;
-
-            if (autoMoveTimeoutId) {
-                clearTimeout(autoMoveTimeoutId);
-                autoMoveTimeoutId = null;
-            }
-
-            autoMovePath = [];
-            currentPathIndex = 0;
-
-            let targetDestination = null;
-            let pathFunction = findPathBasic;
-            let pathPenaltyEntities = [];
-
-            const allEnemies = enemies;
-            const allPickups = staticDamageNumbers.filter(s => !s.isPlayerRemains); // Only actual pickups, not player remains
-
-            if (autoMode === 'highScore') {
-                // Enhanced HIGH_SCORE mode: maximize score while minimizing risk
-                const isPlayerLowHealth = player.health <= PLAYER_VISUAL_HEALTH_THRESHOLD * HIGH_SCORE_LOW_HEALTH_THRESHOLD_RATIO;
-                const isPlayerVeryLowHealth = player.health <= PLAYER_VISUAL_HEALTH_THRESHOLD * 0.15; // Critical health
-                const allEnemiesPresent = enemies.length > 0;
-                
-                const weakEnemies = allEnemies.filter(e => e.health <= player.health * HIGH_SCORE_WEAK_ENEMY_THRESHOLD_RATIO);
-                const moderateEnemies = allEnemies.filter(e => e.health > player.health * HIGH_SCORE_WEAK_ENEMY_THRESHOLD_RATIO && e.health <= player.health * 1.5);
-                const strongEnemies = allEnemies.filter(e => e.health > player.health * 1.5);
-                
-                const closestPickup = getClosestEntity(allPickups, player);
-                const closestWeakEnemy = getClosestEntity(weakEnemies, player);
-                const closestModerateEnemy = getClosestEntity(moderateEnemies, player);
-                const closestStrongEnemy = getClosestEntity(strongEnemies, player);
-
-                // Priority logic for high score optimization
-                if (isPlayerVeryLowHealth && closestPickup) {
-                    // Critical health - prioritize healing above all else
-                    targetDestination = closestPickup;
-                    pathPenaltyEntities = allEnemies; // Avoid all enemies
-                } else if (isPlayerLowHealth && closestPickup && (!closestWeakEnemy || getDistance(player, closestPickup) < getDistance(player, closestWeakEnemy) * 0.7)) {
-                    // Low health but not critical - prefer nearby pickups over distant weak enemies
-                    targetDestination = closestPickup;
-                    pathPenaltyEntities = [...moderateEnemies, ...strongEnemies]; // Avoid stronger enemies
-                } else if (closestWeakEnemy && (!isPlayerLowHealth || getDistance(player, closestWeakEnemy) <= 3)) {
-                    // Target weak enemies for easy score, unless low health and enemy is far
-                    targetDestination = closestWeakEnemy;
-                    pathPenaltyEntities = [...moderateEnemies, ...strongEnemies]; // Avoid stronger enemies
-                } else if (closestPickup && closestModerateEnemy && getDistance(player, closestPickup) < getDistance(player, closestModerateEnemy) * 0.5) {
-                    // Prefer very close pickups over moderate enemies
-                    targetDestination = closestPickup;
-                    pathPenaltyEntities = [...moderateEnemies, ...strongEnemies];
-                } else if (closestModerateEnemy && !isPlayerLowHealth) {
-                    // Fight moderate enemies when healthy
-                    targetDestination = closestModerateEnemy;
-                    pathPenaltyEntities = strongEnemies; // Avoid only strong enemies
-                } else if (closestPickup) {
-                    // Default to pickups when no good enemy targets
-                    targetDestination = closestPickup;
-                    pathPenaltyEntities = allEnemies;
-                } else if (!isPlayerLowHealth && closestStrongEnemy && strongEnemies.length === 1) {
-                    // Fight single strong enemy if healthy and no other options
-                    targetDestination = closestStrongEnemy;
-                    pathPenaltyEntities = [];
-                } else {
-                    // No good options remaining, head to stairs
-                    targetDestination = stairs;
-                    pathPenaltyEntities = allEnemies;
-                }
-                pathFunction = findPathWithProximityPenalty;
-            }
-
-            if (targetDestination) {
-                // For auto-movement, entities should avoid certain obstacles.
-                // If the target is stairs, stairs should NOT be an obstacle.
-                const entitiesToAvoidForAutoMove = [...pathPenaltyEntities];
-                if (targetDestination !== stairs && stairs) { // Only add stairs to avoid if stairs are NOT the target
-                    entitiesToAvoidForAutoMove.push(stairs);
-                }
-                const path = pathFunction(player.x, player.y, targetDestination.x, targetDestination.y, gameMap, dynamicMapWidth, dynamicMapHeight, entitiesToAvoidForAutoMove);
-                if (path && path.length > 1) {
-                    autoMovePath = path;
-                    executeAutoMoveStep();
-                } else {
-                    console.warn(`No clear path found to target (${targetDestination.x}, ${targetDestination.y}). Stopping auto-movement.`);
-                    stopAutomatedMovement();
-                }
-            } else {
-                console.warn("No target destination for auto-movement. Stopping auto-movement.");
-                stopAutomatedMovement();
-            }
-        }
-
-        /**
-         * Executes one step of the automated movement path for P/E modes.
-         * This function is called recursively by setTimeout.
-         */
-        function executeAutoMoveStep() {
-            if (gameOver || autoMode === null) {
-                stopAutomatedMovement();
-                return;
-            }
-
-            if (!autoMovePath || autoMovePath.length === 0 || currentPathIndex >= autoMovePath.length) {
-                // If path is exhausted or invalid, try to find a new path (e.g., if new enemies spawned)
-                autoMoveTimeoutId = setTimeout(startAutomatedMovement, AUTO_MOVE_SPEED);
-                return;
-            }
-
-            const nextPos = autoMovePath[currentPathIndex];
-            const dx = nextPos.x - player.x;
-            const dy = nextPos.y - player.y;
-
-            const combatOccurred = movePlayer(dx, dy);
-
-            if (gameOver) {
-                stopAutomatedMovement();
-                return;
-            }
-
-            const delay = combatOccurred ? COMBAT_MOVE_DELAY : AUTO_MOVE_SPEED;
-
-            // Check if we need to recalculate path
-            let shouldRecalculate = false;
-            
-            if (player.x !== nextPos.x || player.y !== nextPos.y || combatOccurred) {
-                shouldRecalculate = true;
-            }
-
-            if (shouldRecalculate) {
-                autoMoveTimeoutId = setTimeout(startAutomatedMovement, delay);
-                return;
-            }
-
-            currentPathIndex = currentPathIndex + 1; // Explicit assignment
-            autoMoveTimeoutId = setTimeout(executeAutoMoveStep, delay);
-        }
-
-        /**
-         * Handles keyboard input for player movement.
-         * @param {KeyboardEvent} event - The keyboard event.
-         */
-        function handleKeyDown(event) {
-            // Block all input if inputLocked is true
-            if (typeof inputLocked !== 'undefined' && inputLocked) {
-                event.preventDefault();
-                return;
-            }
-            // If the game start overlay is active, any key press will dismiss it
-            if (gameStartedOverlayActive) {
-                gameStartedOverlayActive = false;
-                event.preventDefault();
-                return;
-            }
-
-            // Only process game input if the game is running
-            if (!isGameRunning) {
-                return;
-            }
-
-            // Always handle space bar for teleport
-            if (event.key === ' ') {
-                event.preventDefault();
-                if (!gameOver) {
-                    emergencyTeleport();
-                }
-                return;
-            }
-
-            // Stop auto mode on any key press except H
-            if (autoMode !== null && event.key !== 'h' && event.key !== 'H') {
-                stopAutomatedMovement();
-            }
-
-            if (event.key === 'h' || event.key === 'H') {
-                event.preventDefault();
-                if (autoMode === 'highScore') {
-                    stopAutomatedMovement();
-                } else {
-                    stopAutomatedMovement();
-                    autoMode = 'highScore';
-                    startAutomatedMovement();
-                }
-                return;
-            }
-
-            // World switching controls (1-9 keys)
-            if (['1','2','3','4','5','6','7','8','9'].includes(event.key)) {
-                event.preventDefault();
-                const worldNumber = parseInt(event.key);
-                if (WORLDS[worldNumber] && worldNumber !== currentWorld) {
-                    currentWorld = worldNumber;
-                    unlockedWorlds = [1, 2, 3, 4, 5, 6, 7, 8, 9];
-                    setupWorldColors();
-                    initGame(true, false);
-                    console.log(`Switched to world ${worldNumber}: ${WORLDS[worldNumber].name}`);
-                }
-                return;
-            }
-
-            if (gameOver) {
-                event.preventDefault();
-                return;
-            }
-
-            switch (event.key) {
-                case 'ArrowUp':
-                case 'w':
-                case 'W':
-                    movePlayer(0, -1);
-                    break;
-                case 'ArrowDown':
-                case 's':
-                case 'S':
-                    movePlayer(0, 1);
-                    break;
-                case 'ArrowLeft':
-                case 'a':
-                case 'A':
-                    movePlayer(-1, 0);
-                    break;
-                case 'ArrowRight':
-                case 'd':
-                case 'D':
-                    movePlayer(1, 0);
-                    break;
-            }
-            // (Removed duplicate inputLocked check from end of function)
-        }
-
-        // Controller/Gamepad Support Variables
-        let gamepadIndex = -1;
-        let lastGamepadState = {
-            buttons: [],
-            axes: []
-        };
-        const GAMEPAD_DEADZONE = 0.3;
-        const GAMEPAD_POLL_INTERVAL = 16; // ~60fps polling
-
-        /**
-         * Detects connected gamepads and sets up gamepad support
-         */
-        function detectGamepad() {
-            const gamepads = navigator.getGamepads();
-            for (let i = 0; i < gamepads.length; i++) {
-                if (gamepads[i]) {
-                    gamepadIndex = i;
-                    console.log(`Gamepad connected: ${gamepads[i].id}`);
-                    break;
-                }
-            }
-        }
-
-        /**
-         * Handles gamepad input polling
-         */
-        function handleGamepadInput() {
-            if (gamepadIndex === -1) return;
-
-            const gamepad = navigator.getGamepads()[gamepadIndex];
-            if (!gamepad) {
-                gamepadIndex = -1;
-                return;
-            }
-
-            // Handle D-pad and analog stick movement
-            let dx = 0;
-            let dy = 0;
-
-            // D-pad (buttons 12, 13, 14, 15 are standard D-pad)
-            if (gamepad.buttons[12] && gamepad.buttons[12].pressed) dy = -1; // Up
-            if (gamepad.buttons[13] && gamepad.buttons[13].pressed) dy = 1;  // Down
-            if (gamepad.buttons[14] && gamepad.buttons[14].pressed) dx = -1; // Left
-            if (gamepad.buttons[15] && gamepad.buttons[15].pressed) dx = 1;  // Right
-
-            // Left analog stick (axes 0 and 1)
-            if (Math.abs(gamepad.axes[0]) > GAMEPAD_DEADZONE) {
-                if (gamepad.axes[0] > GAMEPAD_DEADZONE) dx = 1;
-                else if (gamepad.axes[0] < -GAMEPAD_DEADZONE) dx = -1;
-            }
-            if (Math.abs(gamepad.axes[1]) > GAMEPAD_DEADZONE) {
-                if (gamepad.axes[1] > GAMEPAD_DEADZONE) dy = 1;
-                else if (gamepad.axes[1] < -GAMEPAD_DEADZONE) dy = -1;
-            }
-
-            // Only move if there's input and it's different from last frame
-            if ((dx !== 0 || dy !== 0) && !gameOver) {
-                const currentInput = `${dx},${dy}`;
-                const lastInput = `${lastGamepadState.dx || 0},${lastGamepadState.dy || 0}`;
-                
-                // Only process movement if it's a new input or enough time has passed
-                if (currentInput !== lastInput || !lastGamepadState.lastMoveTime || 
-                    performance.now() - lastGamepadState.lastMoveTime > 150) {
-                    movePlayer(dx, dy);
-                    lastGamepadState.lastMoveTime = performance.now();
-                }
-                lastGamepadState.dx = dx;
-                lastGamepadState.dy = dy;
-            } else {
-                lastGamepadState.dx = 0;
-                lastGamepadState.dy = 0;
-            }
-
-            // Handle automation mode buttons
-            // (Gamepad automation controls removed)
-
-            // Start button (button 9) - Restart game when game over
-            if (gameOver && gamepad.buttons[9] && gamepad.buttons[9].pressed && !lastGamepadState.buttons[9]) {
-                // Trigger restart animation and game restart
-                const restartText = "PRESS R TO RESTART";
-                const baseFontSize = Math.floor(dynamicTileSize * 0.8);
-                ctx.font = `${baseFontSize}px VT323`;
-                const textMetrics = ctx.measureText(restartText);
-                const textWidth = textMetrics.width;
-
-                const textX = gameCanvas.width / 2;
-                const textY = gameCanvas.height / 2 + dynamicTileSize * 1.5;
-
-                // Generate particles for each character
-                restartTextParticles = [];
-                let currentTextX = textX - textWidth / 2;
-                const charSpacing = textWidth / restartText.length;
-
-                for (let i = 0; i < restartText.length; i++) {
-                    const char = restartText[i];
-                    const charX = currentTextX + charSpacing * i + charSpacing / 2;
-                    const charY = textY;
-
-                    const angle = Math.random() * Math.PI * 2;
-                    const speed = (Math.random() * 0.5 + 0.2) * (dynamicTileSize / 20);
-                    const dirX = Math.cos(angle);
-                    const dirY = Math.sin(angle);
-                    const fadeFactor = Math.random() * 0.7 + 0.3;
-
-                    restartTextParticles.push({
-                        char: char,
-                        startX: charX,
-                        startY: charY,
-                        dirX: dirX,
-                        dirY: dirY,
-                        initialSpeed: speed,
-                        fontSize: baseFontSize,
-                        color: '#FFD700',
-                        startTime: performance.now(),
-                        duration: RESTART_TEXT_EXPLOSION_DURATION,
-                        fadeFactor: fadeFactor
-                    });
-                }
-
-                restartTextAnimationActive = true;
-                restartTextAnimationStartTime = performance.now();
-                restartGame();
-            }
-
-            // Any face button - Dismiss game start overlay
-            if (gameStartedOverlayActive && 
-                ((gamepad.buttons[0] && gamepad.buttons[0].pressed) ||
-                 (gamepad.buttons[1] && gamepad.buttons[1].pressed) ||
-                 (gamepad.buttons[2] && gamepad.buttons[2].pressed) ||
-                 (gamepad.buttons[3] && gamepad.buttons[3].pressed))) {
-                gameStartedOverlayActive = false;
-            }
-
-            // Store button states for next frame
-            lastGamepadState.buttons = gamepad.buttons.map(button => button.pressed);
-        }
-
-        /**
-         * Starts gamepad polling
-         */
-        function startGamepadPolling() {
-            setInterval(() => {
-                if (gamepadIndex === -1) {
-                    detectGamepad();
-                } else {
-                    handleGamepadInput();
-                }
-            }, GAMEPAD_POLL_INTERVAL);
-        }
-
-        // Gamepad connection event listeners
-        window.addEventListener('gamepadconnected', (e) => {
-            console.log(`Gamepad connected: ${e.gamepad.id}`);
-            gamepadIndex = e.gamepad.index;
-        });
-
-        window.addEventListener('gamepaddisconnected', (e) => {
-            console.log(`Gamepad disconnected: ${e.gamepad.id}`);
-            if (e.gamepad.index === gamepadIndex) {
-                gamepadIndex = -1;
-            }
-        });
-
-        /**
-         * The main animation loop.
-         * @param {DOMHighResTimeStamp} currentTime - The current time provided by requestAnimationFrame.
-         */
-        function animate(currentTime) {
-            try {
-                animationFrameId = requestAnimationFrame(animate);
-                drawGame();
-            }
-            catch (error) {
-                console.error("Error in animation loop:", error);
-                stopAnimationLoop(); // Stop the loop to prevent further errors
-                handleGameOver(); // Attempt to gracefully end the game
-            }
-        }
-
-        /**
-         * Starts the animation loop.
-         */
-        function startAnimationLoop() {
-            console.log('Starting animation loop...');
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-            }
-            animationFrameId = requestAnimationFrame(animate);
-            console.log('Animation loop started with ID:', animationFrameId);
-        }
-
-        /**
-         * Stops the animation loop.
-         */
-        function stopAnimationLoop() {
-            if (animationFrameId) {
-                cancelAnimationFrame(animationFrameId);
-                animationFrameId = null;
-            }
-        }
-
-        /**
-         * Calculates the current score.
-         */
-        function calculateScore() {
-            let score = 0;
-            if (stepsTaken > 0) {
-                const averageDamagePerTurn = totalDamageDealt / stepsTaken;
-                score = Math.floor(totalDamageDealt * averageDamagePerTurn);
-            }
-            return score;
-        }
-
-        /**
          * Loads high scores from local storage. (Function kept for potential future use, not currently displayed)
          */
         function loadHighScores() {
@@ -6413,12 +5579,16 @@
          * @param {boolean} showGameStartOverlay - Whether to show the "HARD DIVISION" overlay.
          */
         function initGame(resetGameStats = true, showGameStartOverlay = false) {
+            // Initialize global game state
+            if (resetGameStats) {
+                initializeGameState();
+            }
+            
             playerHasMovedThisLevel = false;
             console.log('=== initGame() called ===', { resetGameStats, showGameStartOverlay });
             const wasGameOver = gameOver; // Capture state before resetting gameOver
             gameOver = false;
-            window.removeEventListener('keydown', handleKeyDown); // Prevent duplicate listeners
-            window.addEventListener('keydown', handleKeyDown);
+            initializeInputHandler(); // Initialize input handling system
             
             console.log('About to check currentLevel and reset stats...');
             // Ensure currentLevel has a valid value before using it
@@ -6811,6 +5981,9 @@
             
             console.log('Canvas and context successfully obtained');
             
+            // Initialize game state variables first (needed for world progression check)
+            initializeGameState();
+            
             // Load total player score for world progression
             const savedScore = localStorage.getItem('hardDivisionTotalScore');
             if (savedScore) {
@@ -6825,10 +5998,10 @@
             console.log('Canvas element found:', gameCanvas ? 'YES' : 'NO');
             console.log('Context obtained:', ctx ? 'YES' : 'NO');
             
-            // Initialize the game
+            // Initialize the game (don't reset game stats since we just loaded them)
             console.log('Calling initGame...');
             try {
-                initGame(true, true); // Reset game stats and show overlay
+                initGame(false, true); // Don't reset game stats, but show overlay
                 console.log('✅ initGame completed successfully');
             } catch (error) {
                 console.error('❌ initGame failed:', error);
@@ -6837,13 +6010,8 @@
             }
             
             // Set up event listeners
-            window.removeEventListener('keydown', handleKeyDown); // Prevent duplicate listeners
-            window.addEventListener('keydown', handleKeyDown);
+            initializeInputHandler(); // Initialize input handling system
             window.addEventListener('resize', resizeCanvas);
-            
-            // Initialize gamepad support
-            startGamepadPolling();
-            detectGamepad();
             
             // Initial canvas resize
             resizeCanvas();

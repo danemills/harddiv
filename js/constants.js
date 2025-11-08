@@ -109,3 +109,7 @@ window.SPATIAL_GRID_SIZE = 8; // Grid cell size for spatial indexing
 
 // Performance monitoring constants
 window.PERFORMANCE_LOG_INTERVAL = 10000; // Log every 10 seconds
+
+// Gamepad input constants
+window.GAMEPAD_DEADZONE = 0.3;
+window.GAMEPAD_POLL_INTERVAL = 16; // ~60fps polling
